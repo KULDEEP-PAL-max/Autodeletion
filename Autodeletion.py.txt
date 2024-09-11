@@ -1,0 +1,150 @@
+# **************************************************************************************************
+# Utility Name : Autodelete.py
+# Purpose      : Delete files and directories based on time period
+# Version History :
+# 04/07/2023 - deletion initiation and completion comment added in log file
+# 23/06/2023 - Broken Symlink issue Fixed
+# 16/06/2023 - log filename changed. Unique location of log file defined
+# 10/06/2024 - log file path changed for SLURM (line 111)
+# 10/09/2024 - Changed file timestamp from mtime to ctime
+# ************************************************************************************************
+
+#Importing required libraries
+import os
+import logging
+
+import time
+from datetime import datetime
+import argparse
+
+# Setting Command Line Argument
+parser = argparse.ArgumentParser()
+parser.add_argument('--ext', type=str, help='Specify extension type, Example- .py, .log, etc')
+parser.add_argument('--path', type=str, help='Specify path')
+parser.add_argument('--day', type=int, help='Specify number of days', default=365)
+
+# Fetching Command Line Argument
+args = parser.parse_args()
+extension = args.ext
+pathToDelete = args.path
+days = args.day
+
+targetFolder = pathToDelete.split("/")[-1]
+rootFolder = pathToDelete.split("/")[1]
+
+# Validating arguments
+if os.path.exists(pathToDelete):
+    pass
+else:
+    print('ERROR: Invalid argument --path= ', pathToDelete)
+    exit()
+
+if len(extension)==0:
+    print('ERROR: You have not provided the extension')
+    exit()
+if len(str(days))==0:
+    print('ERROR: You have not provided the number of days')
+    exit()
+# Getting current date and converting it to seconds
+today = datetime.utcfromtimestamp(time.time())
+
+specificFilesPath = []
+allFilePaths = []
+allFolderPath = []
+fullpathDir = []
+fullpathFile = []
+softLinkPath = []
+uniqueList = []
+
+# Remove all data based on given time period
+def removeAll():
+    for root, dirs, files in os.walk(pathToDelete):
+        for dr in dirs:
+            fullpathDir.append(os.path.join(root, dr))
+        for file in files:
+            fullpathFile.append(os.path.join(root, file))
+        for i in fullpathFile:
+            try:
+                createDate = datetime.utcfromtimestamp(os.path.getctime(i))
+                totalDay = (today-createDate).days
+                if totalDay > days:
+                    allFilePaths.append(i)
+            except OSError:
+                softLinkPath.append(i)
+
+    for x in softLinkPath:
+        if x not in uniqueList:
+            uniqueList.append(x)
+
+    for link in uniqueList:
+        try:
+            os.system("unlink" + " " + link)
+            logger.info('SYMLINK: Link deleted: ' + link)
+        except OSError:
+            pass
+
+    for k in allFilePaths[::-1]:
+        try:
+            os.remove(k)
+            logger.info('INFO: File deleted: '+k)
+        except OSError:
+            pass
+
+    global x1,y1
+    x1 = 0
+    y1 = 0
+    for l in fullpathDir[::-1]:
+        try:
+            os.rmdir(l)
+            logger.info('INFO: Folder deleted: '+l)
+            x1=x1+1
+        except OSError:
+            logger.info('INFO: Non Empty Directory: ' +l)
+            y1=y1+1
+
+# Initiate Log file
+def logfile():
+    #cwd = "/home/aghorpb1/Autodeletion_log" #Test Server
+    #cwd = "/data2"                          # PBS path
+    cwd = "/cae_data"                        #SLURM path
+    if not os.path.exists(os.path.join(cwd, 'logs')):
+        logDir = os.path.join(cwd, 'logs')
+        os.mkdir(logDir)
+    timestamp = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
+    logFileName = rootFolder + "_" + targetFolder + "_" + extension + "_" + str(days) + "_days_" + timestamp + '.log'
+    logFilePath = os.path.join(os.path.join(cwd, 'logs'), logFileName)
+
+    # Initiating Log file
+    logging.basicConfig(filename=logFilePath, format='%(asctime)s %(message)s', filemode='w')
+    global logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.info('File extensions: ' + extension)
+    logger.info('Path: ' + pathToDelete)
+    logger.info('Days: ' + str(days))
+    logger.info('Log Path: ' + logFilePath)
+
+
+# Main Function
+def main(extension, pathToDelete, days):
+    # Creating Log file
+    logfile()
+
+    # Removing files and folders
+    if os.path.exists(pathToDelete):
+        if extension == 'all':
+            logger.info('******************* DELETION START *******************')
+            removeAll()
+            print('--------------Done--------------------')
+            print("Number of files deleted: " + str(len(allFilePaths)))
+            print("Number of folders deleted: " + str(x1))
+            print("Number of Non Empty directory: " + str(y1))
+            logger.info('***************** DELETION COMPLETED *******************')
+    else:
+        print('ERROR: Invalid Path')
+        logger.error('ERROR: Invalid Path')
+
+
+#-----------------------MAIN-------------------------------------
+
+main(extension=extension, pathToDelete=pathToDelete, days=days)
